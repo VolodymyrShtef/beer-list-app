@@ -1,296 +1,113 @@
 import React, { Component } from "react";
 
-import ContactsList from "./phonebook/ContactsList";
-import ShowFav from "./phonebook/ShowFav";
-import AddContactForm from "./phonebook/AddContactForm";
-import EditContactForm from "./phonebook/EditContactForm";
-
-import contacts from "./phonebook/firebase";
-import testData from "../components/testData";
-
-import { v4 as uuidv4 } from "uuid";
-
-import firebase from "firebase/app";
-import "firebase/auth";
-import StyledFirebaseAuth from "react-firebaseui/StyledFirebaseAuth";
-import "firebase/firestore";
-
-import { Route, Switch } from "react-router-dom";
+import BeerList from "./beerListApp/BeerList";
+import Filter from "./beerListApp/Filter";
+import SortingBlock from "./beerListApp/SortingBlock";
+import Modal from "./beerListApp/Modal";
 
 import "bootstrap/dist/css/bootstrap.min.css";
 import Container from "react-bootstrap/Container";
-import Button from "react-bootstrap/Button";
 
-import "./styles.css";
-import Logo from "../images/phone-book.svg";
+import "../styles.css";
+import axios from "axios";
 
 export default class App extends Component {
   state = {
-    contacts: [],
-    isSignedIn: false,
-    editID: "",
-  };
-
-  addTestContacts = () => {
-    const test = async () => {
-      await this.setState({
-        contacts: testData(),
-      });
-    };
-    test().then(() => {
-      this.storeInDB();
-      this.showContacts(firebase.auth().currentUser.displayName);
-    });
-  };
-
-  uiConfig = {
-    signInFlow: "popup",
-    signInOptions: [firebase.auth.GoogleAuthProvider.PROVIDER_ID],
-    callbacks: {
-      signInSuccessWithAuthResult: () => false,
-    },
+    beers: [],
+    filterW: "",
+    sortby: "id",
+    order: "asc",
+    modalShow: false,
+    beerShow: {},
   };
 
   componentDidMount() {
-    firebase.auth().onAuthStateChanged((user) => {
-      this.setState({ isSignedIn: !!user });
-      if (this.state.isSignedIn) {
-        this.showContacts(firebase.auth().currentUser.displayName);
-      }
-    });
+    axios
+      .get(`https://api.punkapi.com/v2/beers?per_page=80`)
+      .then((response) => this.setState({ beers: response.data }))
+      .catch((error) => console.log(error));
   }
 
-  // componentDidUpdate => storeInDB(), який викликається з addContact
-  // i editContact з async-await
-  storeInDB = () => {
-    this.state.contacts.forEach((contact) => {
-      contacts
-        .collection(firebase.auth().currentUser.displayName)
-        .doc(contact.id)
-        .set(
-          {
-            id: contact.id,
-            Name: contact.Name,
-            Phone: contact.Phone,
-            Email: contact.Email,
-            favourite: contact.favourite,
-          },
-          { merge: true }
-        )
-        .then(function () {
-          console.log("Stored in DB");
-        })
-        .catch(function (error) {
-          console.error("Error adding ", error);
+  handleFilter = (e) => {
+    this.setState({ filterW: e.target.value });
+  };
+
+  getFilteredBeers = () => {
+    const { beers, filterW } = this.state;
+    return beers.filter((beer) =>
+      beer.name.toLowerCase().includes(filterW.toLowerCase())
+    );
+  };
+
+  sortingOrderChange = (name, value) => {
+    this.setState({ [name]: value });
+  };
+
+  sortBeers = (beers) => {
+    if (this.state.beers.length < 1 || beers < 1) return beers;
+    const sortingParam = this.state.sortby;
+
+    if (this.state.order === "asc")
+      if (typeof beers[0][sortingParam] === "string")
+        return beers.sort((a, b) => {
+          const nameA = a[sortingParam].toLowerCase();
+          const nameB = b[sortingParam].toLowerCase();
+          if (nameA < nameB) return -1;
+          if (nameA > nameB) return 1;
+          return 0;
         });
-    });
-  };
+      else {
+        return beers.sort((a, b) => a[sortingParam] - b[sortingParam]);
+      }
 
-  showContacts = (name) => {
-    let allContacts = [];
-    contacts
-      .collection(name)
-      .get()
-      .then((querySnapshot) => {
-        querySnapshot.forEach((doc) => {
-          allContacts.push(doc.data());
-        });
-        this.setState({ contacts: allContacts });
+    if (typeof beers[0][sortingParam] === "string")
+      return beers.sort((a, b) => {
+        const nameA = a[sortingParam].toLowerCase();
+        const nameB = b[sortingParam].toLowerCase();
+        if (nameA > nameB) return -1;
+        if (nameA < nameB) return 1;
+        return 0;
       });
-  };
-
-  filterFavs = () => {
-    const favContacts = this.state.contacts.filter(
-      (contact) => contact.favourite
-    );
-    return favContacts;
-  };
-
-  addContact = ({ name, tel, email }, history) => {
-    if (this.state.contacts.find((contact) => contact.Phone === tel)) {
-      alert("Contact with entered phone number already exists");
-      return;
+    else {
+      return beers.sort((a, b) => b[sortingParam] - a[sortingParam]);
     }
-    const newState = async () => {
-      await this.setState({
-        contacts: [
-          ...this.state.contacts,
-          {
-            id: uuidv4(),
-            Name: name,
-            Phone: tel,
-            Email: email,
-            favourite: false,
-          },
-        ],
-      });
-    };
-    newState().then(() => this.storeInDB());
-    history.push("/");
   };
 
-  addToFavToggle = (e) => {
-    const idFavToggle = e.target.id;
-    const updatedContacts = this.state.contacts.map((contact) =>
-      contact.id === idFavToggle
-        ? {
-            ...contact,
-            favourite: !contact.favourite,
-          }
-        : { ...contact }
-    );
-    this.setState({ contacts: updatedContacts });
+  showModale = (beerID) => {
+    const beerShow = this.state.beers.find((beer) => beer.id === beerID);
+    this.setState({ modalShow: true, beerShow: beerShow });
+    window.addEventListener("keydown", this.hideModal);
   };
 
-  handleEditContact = (e) => {
-    this.setState({ editID: e.target.id });
-  };
-
-  // forEach -> find
-  getPropsOfEditingContact = () => {
-    if (!this.state.editID) return;
-    const editingContact = this.state.contacts.find(
-      (contact) => contact.id === this.state.editID
-    );
-    return {
-      name: editingContact.Name,
-      tel: editingContact.Phone,
-      email: editingContact.Email,
-    };
-  };
-
-  editContact = ({ name, tel, email }, history) => {
-    const idUpdate = this.state.editID;
-    if (
-      this.state.contacts.find(
-        (contact) => contact.Phone === tel && contact.id !== idUpdate
-      )
-    ) {
-      alert("Contact with entered phone number already exists");
-      return;
+  hideModal = (e) => {
+    if (e.type === "click" || e.code === "Escape") {
+      this.setState({ modalShow: false, beerShow: {} });
+      window.removeEventListener("keydown", this.hideModal);
     }
-    const updatedContacts = this.state.contacts.map((contact) =>
-      contact.id === idUpdate
-        ? {
-            Name: name,
-            Phone: tel,
-            Email: email,
-            id: contact.id,
-            favourite: contact.favourite,
-          }
-        : { ...contact }
-    );
-
-    const newState = async () => {
-      await this.setState({
-        contacts: updatedContacts,
-        editID: "",
-      });
-    };
-    newState().then(() => this.storeInDB());
-    history.push("/");
-  };
-
-  deleteItem = (e) => {
-    const idDelete = e.target.id;
-    const updatedContacts = this.state.contacts.filter(
-      (contact) => contact.id !== idDelete
-    );
-    this.setState({ contacts: updatedContacts });
-
-    contacts
-      .collection(firebase.auth().currentUser.displayName)
-      .doc(idDelete)
-      .delete()
-      .then(function () {
-        console.log("Document successfully deleted!");
-      })
-      .catch(function (error) {
-        console.error("Error removing document: ", error);
-      });
   };
 
   render() {
-    const { isSignedIn, contacts } = this.state;
+    const filteredBeers = this.getFilteredBeers();
+    const sortedBeers = this.sortBeers(filteredBeers);
+
     return (
       <>
-        {!isSignedIn ? (
-          <>
-            <h2>Sign in, please</h2>
-            <Route
-              path="/"
-              render={(props) => (
-                <StyledFirebaseAuth
-                  {...props}
-                  uiConfig={this.uiConfig}
-                  firebaseAuth={firebase.auth()}
-                />
-              )}
-            />
-          </>
-        ) : (
-          <>
-            <Container className="custom_wrapper">
-              <Container className="flex_container">
-                <img className="img_main" src={Logo} alt="" width="50" />
-                <h2>
-                  Welcome to Phonebook App,{" "}
-                  {firebase.auth().currentUser.displayName}
-                </h2>
-              </Container>
-              <Button variant="dark" onClick={() => firebase.auth().signOut()}>
-                Sign out!
-              </Button>
-            </Container>
+        <Container className="title_wrapper">
+          <h1>Beer List App</h1>
+        </Container>
 
-            <Container fluid className="backgr_wrapper">
-              <Container className="content_wrapper">
-                <Switch>
-                  <Route
-                    exact
-                    path="/"
-                    render={(props) => (
-                      <ContactsList
-                        {...props}
-                        contacts={contacts}
-                        onAddToFavToggle={this.addToFavToggle}
-                        onEditContact={this.handleEditContact}
-                        onDeleteItem={this.deleteItem}
-                        onAddTestContacts={this.addTestContacts}
-                      />
-                    )}
-                  />
+        <Container className="flex_container_spased">
+          <Filter handleInput={this.handleFilter} value={this.state.filterW} />
+          <SortingBlock onSortingOrderChange={this.sortingOrderChange} />
+        </Container>
 
-                  <Route
-                    path="/addnewcontact"
-                    render={(props) => (
-                      <AddContactForm
-                        {...props}
-                        onAddContact={this.addContact}
-                      />
-                    )}
-                  />
-
-                  <Route
-                    path="/editcontact"
-                    render={(props) => (
-                      <EditContactForm
-                        {...props}
-                        onEditContact={this.editContact}
-                        editID={this.state.editID}
-                        contactProps={this.getPropsOfEditingContact()}
-                      />
-                    )}
-                  />
-
-                  <Route
-                    path="/showfavourites"
-                    render={(props) => <ShowFav contacts={this.filterFavs()} />}
-                  />
-                </Switch>
-              </Container>
-            </Container>
-          </>
+        <Container className="table_container">
+          {this.state.beers && (
+            <BeerList beers={sortedBeers} onBeerSelect={this.showModale} />
+          )}
+        </Container>
+        {this.state.modalShow && (
+          <Modal beerShow={this.state.beerShow} onCloseModal={this.hideModal} />
         )}
       </>
     );
